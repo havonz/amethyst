@@ -1,13 +1,8 @@
 #include "info.h"
 #include "util.h"
-#include "dma.h"
+#include "ppl.h"
 #include "basebin_memory.h"
 #include "memory.h"
-
-static void *(*__IOSurfaceCreate)(CFDictionaryRef properties) = NULL;
-static void *(*__IOSurfaceGetBaseAddress)(void *surface) = NULL;
-static uint64_t phys_mapping_base = 0;
-static mach_port_t phys_mapping_entry = MACH_PORT_NULL;
 
 static tt_level_t arm_tt_level[4] = {
     (tt_level_t){
@@ -189,84 +184,4 @@ uint64_t kvtophys(uint64_t va) {
 uint64_t vtophys(uint64_t va) {
     if (kinfo->self_ttep == 0 || va == 0) return 0;
     return ttep_vtophys(kinfo->self_ttep, va);
-}
-
-static int init_phys_mapping(void) {
-    void *io_handle = dlopen("/System/Library/Frameworks/IOSurface.framework/IOSurface", RTLD_NOW);
-    if (io_handle == NULL) {
-        io_handle = dlopen("/System/Library/PrivateFrameworks/IOSurface.framework/IOSurface", RTLD_NOW);
-        if (io_handle == NULL) return -1;
-    }
-    
-    if ((__IOSurfaceCreate = dlsym(io_handle, "IOSurfaceCreate")) == NULL) return -1;
-    if ((__IOSurfaceGetBaseAddress = dlsym(io_handle, "IOSurfaceGetBaseAddress")) == NULL) return -1;
-    
-    CFMutableDictionaryRef dict = CFDictionaryCreateMutable(NULL, 0, NULL, NULL);
-    uint64_t oob_size = 0x4000 - 0x8000;
-    memory_object_size_t mem_size = 0x20000;
-    uint32_t width_height = 64;
-    
-    CFDictionarySetValue(dict, CFSTR("IOSurfacePixelFormat"), CFNUM((int)'ARGB'));
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceWidth"), CFNUM(width_height));
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceHeight"), CFNUM(width_height));
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceBufferTileMode"), kCFBooleanFalse);
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceBytesPerRow"), CFNUM(width_height*4));
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceBytesPerElement"), CFNUM(4));
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceAllocSize"), CFNUM((uint32_t)mem_size));
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceIsGlobal"), kCFBooleanTrue);
-    CFDictionarySetValue(dict, CFSTR("IOSurfaceMemoryRegion"), CFSTR("PurpleGfxMem"));
-
-    void *surface = __IOSurfaceCreate(dict);
-    CFRelease(dict);
-    if (surface == NULL) return -1;
-    
-    memory_object_offset_t base = (memory_object_offset_t)__IOSurfaceGetBaseAddress(surface);
-    memset((void *)base, 0x41, mem_size);
-    
-    mach_port_t main_entry = MACH_PORT_NULL;
-    vm_prot_t prot = VM_PROT_DEFAULT;
-    SET_MAP_MEM(MAP_MEM_IO, prot);
-    
-    mach_make_memory_entry_64(mach_task_self(), &mem_size, base, prot, &main_entry, 0);
-    mach_make_memory_entry_64(mach_task_self(), &oob_size, 0x8000, prot, &phys_mapping_entry, main_entry);
-    CFRelease(surface);
-    
-    if (!MACH_PORT_VALID(phys_mapping_entry)) return -1;
-    prot = VM_PROT_READ | VM_PROT_WRITE;
-    uint64_t mapped = 0;
-    
-    if (mach_vm_map(mach_task_self(), &mapped, kinfo->page_size, 0, 1, phys_mapping_entry, 0, 0, prot, prot, 0) != 0) {
-        mach_port_deallocate(mach_task_self(), phys_mapping_entry);
-        phys_mapping_entry = MACH_PORT_NULL;
-        return -1;
-    }
-    
-    if (*(volatile uint64_t *)mapped == 0x1337123413371234) return -1; // fault page
-    phys_mapping_base = vtophys(mapped);
-    mach_vm_deallocate(mach_task_self(), mapped, kinfo->page_size);
-    
-    if (phys_mapping_base == 0) {
-        mach_port_deallocate(mach_task_self(), phys_mapping_entry);
-        phys_mapping_entry = MACH_PORT_NULL;
-        return -1;
-    }
-    return 0;
-}
-
-uint64_t phys_map_page(uint64_t pa) {
-    if (!MACH_PORT_VALID(phys_mapping_entry)) {
-        if (init_phys_mapping() != 0) return 0;
-    }
-    
-    uint64_t offset = pa - phys_mapping_base;
-    vm_prot_t prot = VM_PROT_READ | VM_PROT_WRITE;
-    uint64_t addr = 0;
-    
-    mach_vm_map(mach_task_self(), &addr, kinfo->page_size, 0, 1, phys_mapping_entry, offset, 0, prot, prot, 0);
-    return addr;
-}
-
-void phys_unmap_page(uint64_t va) {
-    if (va == 0) return;
-    mach_vm_deallocate(mach_task_self(), va, kinfo->page_size);
 }

@@ -91,7 +91,6 @@ typedef struct {
             uint32_t fg_data;
         } fileglob;
         
-        
         struct {
             uint32_t ip_bits;
             uint32_t ip_receiver;
@@ -157,6 +156,9 @@ typedef struct {
         uint64_t gVirtBase;
         uint64_t gPhysBase;
         uint64_t gPhysSize;
+        uint64_t pplrw_entry;
+        uint64_t pplrw_mapping_va;
+        uint64_t pplrw_mapping_pa;
     } patches;
 } kinfo_t;
 

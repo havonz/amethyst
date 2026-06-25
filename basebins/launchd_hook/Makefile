@@ -5,9 +5,11 @@ LDID = $(shell which ldid)
 
 CFLAGS := -I./include -I../common/include -isysroot $(SDK) -mios-version-min=12.0 -arch arm64 -arch arm64e \
 	-Werror -Wall -Wno-unused-variable -Wno-unused-function -fvisibility=hidden -fvisibility-inlines-hidden
+#	-Wno-deprecated-declarations -fstandalone-debug -g -O0
 
-LDFLAGS := -L$(SDK)/usr/lib -lc -lobjc -lSystem -framework Foundation -framework CoreFoundation -framework ImageIO \
-	-framework CoreGraphics -dynamiclib  -Wl,-sectcreate,__DATA,__splashscreen,../resources/splashscreen.jp2
+LDFLAGS := -L$(SDK)/usr/lib -lc -lSystem -dynamiclib -framework CoreFoundation -framework ImageIO \
+	-framework CoreGraphics -framework IOSurface -framework IOKit ../resources/IOMobileFramebuffer.tbd \
+	-Wl,-sectcreate,__DATA,__splashscreen,../resources/splashscreen.jp2
 
 SRC = $(wildcard src/*.c) $(wildcard src/*.m) ../common/src/basebin_hook.c ../common/src/basebin_instructions.c \
 	../common/src/basebin_macho.c ../common/src/basebin_memory.c ../common/src/basebin_memory.s \

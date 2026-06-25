@@ -1,4 +1,5 @@
 #include "jailbreak.h"
+#include "handoff.h"
 #include "utils.h"
 
 uint64_t find_proc_for_pid(pid_t pid) {
@@ -549,6 +550,28 @@ done:
     if (src_fd >= 0) close(src_fd);
     if (dest_fd >= 0) close(dest_fd);
     return status;
+}
+
+int vnode_hide_path(const char *path) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    usleep(10000);
+    sync();
+    
+    uint64_t vnode = vnode_for_fd(fd);
+    if (vnode == 0) {
+        close(fd);
+        return -1;
+    }
+    
+    kwrite32(vnode + koffsetof(vnode, v_kusecount), kread32(vnode + koffsetof(vnode, v_kusecount)) + 10);
+    kwrite32(vnode + koffsetof(vnode, v_usecount), kread32(vnode + koffsetof(vnode, v_usecount)) + 10);
+    kwrite32(vnode + koffsetof(vnode, v_flag), kread32(vnode + koffsetof(vnode, v_flag)) | VISSHADOW);
+    usleep(10000);
+    sync();
+    
+    close(fd);
+    return 0;
 }
 
 int run_binary(char *path, char **args, char **env, bool wait, bool root) {

@@ -427,20 +427,6 @@ static uint64_t kpf_find_next_branch(uint64_t start, uint32_t size, bool link_on
     return 0;
 }
 
-static uint64_t kpf_find_next_compare_branch(uint64_t start, uint32_t size) {
-    uint64_t start_addr = (uint64_t)ctx->data + (start - ctx->search_base);
-    uint64_t end_addr = start_addr + size;
-    
-    while (start_addr < end_addr) {
-        uint32_t value = *(uint32_t *)start_addr;
-        if (A64_IS_COMPARE_BRANCH(value)) {
-            return (start_addr - (uint64_t)ctx->data) + ctx->search_base;
-        }
-        start_addr += 0x4;
-    }
-    return 0;
-}
-
 static uint64_t kpf_decode_branch(uint64_t addr) {
     uint32_t inst = *(uint32_t *)((uint64_t)ctx->data + (addr - ctx->search_base));
     if ((inst & A64_B_MASK) == A64_B_OPCODE || (inst & A64_BL_MASK) == A64_BL_OPCODE) {
@@ -449,11 +435,6 @@ static uint64_t kpf_decode_branch(uint64_t addr) {
         return addr + ((((int64_t)((uint64_t)((inst >> 5) & 0x7ffff) << 45)) >> 45) * 0x4);
     }
     return 0;
-}
-
-static uint64_t kpf_decode_compare_branch(uint64_t addr) {
-    uint32_t inst = *(uint32_t *)((uint64_t)ctx->data + (addr - ctx->search_base));
-    return addr + (((int64_t)(((uint64_t)(((inst >> 5) & 0x7ffff) << 2)) << 45)) >> 45);
 }
 
 static uint64_t kpf_decode_adrp_ldr_str(uint64_t addr, uint8_t shift) {
@@ -497,17 +478,6 @@ static uint64_t kpf_find_func_start(uint64_t addr, uint32_t size) {
         }
     }
     return 0;
-}
-
-static uint64_t kpf_find_func_end(uint64_t addr, uint32_t size) {
-    uint64_t end = 0;
-    if (kinfo->protections.pac) {
-        end = kpf_find_next(addr, size, A64_RETAB, A64_ALL_MASK);
-        if (end == 0) end = kpf_find_next(addr, size, A64_RETAA, A64_ALL_MASK);
-    }
-    
-    if (end == 0) end = kpf_find_next(addr, size, A64_RET, A64_ALL_MASK);
-    return end;
 }
 
 uint64_t kpf_find_dynamic_trustcache(void) {

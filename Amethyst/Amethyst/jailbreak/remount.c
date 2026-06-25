@@ -1,7 +1,8 @@
-#include "remount.h"
 #include "jailbreak.h"
 #include "utils.h"
 #include "trustcache.h"
+#include "install.h"
+#include "remount.h"
 
 static char *find_snapshot(void) {
     mach_port_t entry = IORegistryEntryFromPath(0, "IODeviceTree:/chosen");
@@ -210,11 +211,11 @@ remount_err_t restore_rootfs(void) {
         }
         
         closedir(dir);
-        if (access("/var/binpack/Applications/loader.app", F_OK) != 0) {
+        if (access("/var/binpack/Applications/loader.app", F_OK) == 0) {
             run_jbutil("--unregister-app", "/var/binpack/Applications/loader.app", false);
         }
         
-        if (access("/Applications/Cydia.app", F_OK) != 0) {
+        if (access("/Applications/Cydia.app", F_OK) == 0) {
             run_jbutil("--unregister-app", "/Applications/Cydia.app", false);
         }
     }
@@ -224,6 +225,8 @@ remount_err_t restore_rootfs(void) {
         remove_at_path(MOUNT_POINT_PATH);
         sync();
     });
+    
+    restore_cleanup();
     return RESTORE_NEED_REBOOT;
 }
 

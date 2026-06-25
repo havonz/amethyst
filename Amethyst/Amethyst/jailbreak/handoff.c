@@ -5,6 +5,7 @@
 #include "utils.h"
 #include "macho.h"
 #include "dma.h"
+#include "ppl.h"
 
 #include "trustcache.h"
 
@@ -99,6 +100,9 @@ static void init_handoff_plist(void) {
     add_plist_entry(plist, CFSTR("ptov_table"), kinfo->patches.ptov_table);
     add_plist_entry(plist, CFSTR("gPhysBase"), kinfo->patches.gPhysBase);
     add_plist_entry(plist, CFSTR("gVirtBase"), kinfo->patches.gVirtBase);
+    add_plist_entry(plist, CFSTR("pplrw_entry"), kinfo->patches.pplrw_entry);
+    add_plist_entry(plist, CFSTR("pplrw_mapping_va"), kinfo->patches.pplrw_mapping_va);
+    add_plist_entry(plist, CFSTR("pplrw_mapping_pa"), kinfo->patches.pplrw_mapping_pa);
 
     write_plist("/amethyst/handoff.plist", plist);
     CFRelease(plist);
@@ -106,63 +110,11 @@ static void init_handoff_plist(void) {
 }
 
 static int inject_launchd_hook(void) {
-    char *args[] = {"/amethyst/jbutil", "--kickstart", NULL};
-    pid_t pid = -1;
-    int status = -1;
- 
-    posix_spawnattr_t attr = NULL;
-    posix_spawnattr_init(&attr);
-    posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
-
-    int rv = posix_spawn(&pid, args[0], &attr, NULL, args, NULL);
-    if (rv == 0 && pid != -1) {
-        remove_proc_flag(pid, P_SUGID);
-        set_mac_slot(pid, 1, 0);
-        add_task_flag(pid, TF_PLATFORM);
-        add_cs_flag(pid, CS_PLATFORM_PATH|CS_DEBUGGED|CS_INVALID_ALLOWED);
-        remove_cs_flag(pid, CS_KILL|CS_HARD|CS_RESTRICT);
-        kill(pid, SIGCONT);
-        
-        do { if (waitpid(pid, &status, 0) == -1) break; }
-        while (!WIFEXITED(status) && !WIFSIGNALED(status));
-    }
-    
-    remove_proc_flag(getpid(), P_SUGID);
-    kill(pid, SIGTERM);
-    return 0;
+    return run_jbutil("--kickstart", NULL, true);
 }
 
 int userspace_reboot(void) {
-    char *args[] = {"/amethyst/jbutil", "--userspace-reboot", NULL};
-    pid_t pid = -1;
-    int status = -1;
- 
-    posix_spawnattr_t attr = NULL;
-    posix_spawnattr_init(&attr);
-    posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
-
-    int rv = posix_spawn(&pid, args[0], &attr, NULL, args, NULL);
-    if (rv == 0 && pid != -1) {
-        uint64_t proc = find_proc_for_pid(pid);
-        uint64_t ucred = kread64(proc + koffsetof(proc, ucred));
-        kwrite32(proc + koffsetof(proc, p_svuid), 0);
-        kwrite32(ucred + koffsetof(ucred, cr_svuid), 0);
-        kwrite32(ucred + koffsetof(ucred, cr_uid), 0);
-        kwrite32(proc + koffsetof(proc, p_svgid), 0);
-        kwrite32(ucred + koffsetof(ucred, cr_svgid), 0);
-        kwrite32(ucred + koffsetof(ucred, cr_groups), 0);
-        
-        remove_proc_flag(pid, P_SUGID);
-        set_mac_slot(pid, 1, 0);
-        add_task_flag(pid, TF_PLATFORM);
-        add_cs_flag(pid, CS_PLATFORM_PATH|CS_DEBUGGED|CS_INVALID_ALLOWED);
-        remove_cs_flag(pid, CS_KILL|CS_HARD|CS_RESTRICT);
-        kill(pid, SIGCONT);
-        
-        do { if (waitpid(pid, &status, 0) == -1) break; }
-        while (!WIFEXITED(status) && !WIFSIGNALED(status));
-    }
-    return 0;
+    return run_jbutil("--userspace-reboot", NULL, true);
 }
 
 static int preload_basebin(const char *path) {
@@ -229,7 +181,7 @@ static int preload_basebin(const char *path) {
                 uint32_t current_trustlevel = kread32(pmap_cs_entry + 0x54);
                 if (current_trustlevel != 1) {
                     uint64_t trustlevel_pa = kvtophys(pmap_cs_entry + 0x54);
-                    if (trustlevel_pa != 0) dma_write32(trustlevel_pa, 0x00000003);
+                    if (trustlevel_pa != 0) ppl_write32(trustlevel_pa, 0x00000003);
                 }
             }
             cs_blob = kread64(cs_blob); // cs_blob->csb_next
@@ -269,7 +221,7 @@ int jailbreak_handoff(void) {
         uint64_t task = find_task_for_pid(1);
         uint64_t vm_map = kread64(task + koffsetof(task, vm_map));
         uint64_t task_pmap = kread64(vm_map + koffsetof(vm_map, pmap));
-        dma_write8(kvtophys(task_pmap + koffsetof(pmap, cs_enforced)), 0);
+        ppl_write8(kvtophys(task_pmap + koffsetof(pmap, cs_enforced)), 0);
     }
     
     chown("/usr", 0, 0);

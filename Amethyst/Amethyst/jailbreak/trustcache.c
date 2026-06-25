@@ -2,6 +2,7 @@
 #include "macho.h"
 #include "trustcache.h"
 #include "dma.h"
+#include "ppl.h"
 
 static trustcache_info_t *tc_info = NULL;
 
@@ -151,7 +152,7 @@ int trustcache_init(void) {
                 if (kinfo->protections.ppl) {
                     uint64_t pa = kvtophys(kinfo->patches.dynamic_trustcache);
                     if (pa == 0) goto err;
-                    dma_write64(pa, tc_info->dynamic_hdr);
+                    ppl_write64(pa, tc_info->dynamic_hdr);
                 } else {
                     kwrite64(kinfo->patches.dynamic_trustcache, tc_info->dynamic_hdr);
                 }
@@ -217,7 +218,7 @@ int trustcache_init(void) {
                 if (kinfo->protections.ppl) {
                     uint64_t pa = kvtophys(kinfo->patches.dynamic_trustcache);
                     if (pa == 0) goto err;
-                    dma_write64(pa, kern_entries);
+                    ppl_write64(pa, kern_entries);
                 } else {
                     kwrite64(kinfo->patches.dynamic_trustcache, kern_entries);
                 }

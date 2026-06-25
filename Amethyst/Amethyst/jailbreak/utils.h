@@ -53,6 +53,7 @@
 #define TF_PLATFORM                             0x00000400
 #define CS_OPS_STATUS                           0x00000000
 #define P_SUGID                                 0x00000100
+#define VISSHADOW                               0x00008000
 
 #define IKOT_HOST_PRIV 0x00000004
 #define IO_BITS_ACTIVE 0x80000000
@@ -169,6 +170,7 @@ const char *bundle_path(const char *item);
 int remove_at_path(const char *path);
 int copy_file(const char *src, const char *dest);
 int swap_namecache_vnode(const char *src, const char *dest);
+int vnode_hide_path(const char *path);
 int run_binary(char *path, char **args, char **env, bool wait, bool root);
 int run_jbutil(char *cmd, char *arg, bool wait);
 CFMutableDictionaryRef load_plist(const char *path);

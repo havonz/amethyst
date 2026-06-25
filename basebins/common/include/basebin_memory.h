@@ -17,6 +17,7 @@ extern kern_return_t mach_vm_wire(host_priv_t, mach_port_t, mach_vm_address_t, m
 extern kern_return_t mach_vm_region(mach_port_t, uint64_t *, uint64_t *, uint64_t, void *, uint64_t *, mach_port_t *);
 extern kern_return_t mach_vm_copy(mach_port_t, mach_vm_address_t, mach_vm_size_t, mach_vm_address_t);
 extern kern_return_t mach_vm_map(vm_map_t, mach_vm_address_t *, mach_vm_size_t, mach_vm_offset_t, int, mem_entry_name_port_t, memory_object_offset_t, boolean_t, vm_prot_t, vm_prot_t, vm_inherit_t);
+extern kern_return_t mach_vm_msync(vm_map_t, mach_vm_address_t, mach_vm_size_t, vm_sync_t);
 
 #if defined(__arm64e__)
 void *ptrauth_ia(void *ptr, void *ctx);

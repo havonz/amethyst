@@ -227,6 +227,29 @@ static uint64_t ttep_vtophys(uint64_t ttep, uint64_t va) {
     return ttep;
 }
 
+uint64_t get_kva_pte(uint64_t va) {
+    uint64_t ttep = kinfo->cpu_ttep;
+    uint64_t tte_pa = 0;
+
+    for (uint64_t level = PMAP_TT_L1_LEVEL; level <= PMAP_TT_L3_LEVEL; level++) {
+        if (level > PMAP_TT_L3_LEVEL || ttep == 0) return 0;
+        tt_level_t *level_info = &arm_tt_level[level];
+
+        uint64_t tte_index = (va & level_info->index_mask) >> level_info->shift;
+        tte_pa = ttep + (tte_index * 0x8);
+        uint64_t tte_va = phystokv(tte_pa);
+        if (tte_va == 0) return 0;
+
+        uint64_t tte_entry = kread64(tte_va);
+        if ((tte_entry & level_info->valid_mask) != level_info->valid_mask) return 0;
+        if ((tte_entry & level_info->type_mask) == level_info->type_block) {
+            return tte_pa;
+        }
+        ttep = tte_entry & ARM_TTE_TABLE_MASK;
+    }
+    return tte_pa;
+}
+
 uint64_t kvtophys(uint64_t va) {
     return ttep_vtophys(kinfo->cpu_ttep, va);
 }

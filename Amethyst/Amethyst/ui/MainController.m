@@ -255,13 +255,14 @@ extern int csops(pid_t pid, unsigned int  ops, void *useraddr, size_t usersize);
         self.exploitOptionTrigon.optionView.alpha = 0.5f;
     }
     
+    NSString *version = [NSString stringWithFormat:@"version %@", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"]];
     self.settingsPopupCard = [[PopupCard alloc] init:@"Settings" withViews:@[
         initSwitchOption(enableTweaksOption, @"Enable Tweaks"),
         initSwitchOption(restoreRootFSOption, @"Restore RootFS"),
         initBtnOption(exploitOption, @"Exploit", [amethyst exploitString], exploitButtonAction),
         initBtnOption(setGeneratorOption, @"Generator", amethyst.generator, setGenerator),
         initBtnOption(themeOption, @"Theme", amethyst.themeName, selectTheme),
-        initOtherOption(versionLabel, [UILabel createLabel:@"version 1.0.0" size:12 bold:0 align:NSTextAlignmentCenter]),
+        initOtherOption(versionLabel, [UILabel createLabel:version size:12 bold:0 align:NSTextAlignmentCenter]),
         initOtherOption(versionIcon, [UIImageView createImage:@"glyph" alpha:0.6f]),
     ]];
 

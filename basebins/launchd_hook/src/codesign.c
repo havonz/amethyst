@@ -1,6 +1,6 @@
 #include "util.h"
 #include "memory.h"
-#include "dma.h"
+#include "ppl.h"
 #include "trustcache.h"
 #include "codesign.h"
 
@@ -75,16 +75,21 @@ static int create_cs_blob(int fd, char *path, uint32_t slice_offset, uint64_t vn
     blob_data.csb_base_offset = slice->offset;
     blob_data.csb_mem_size = cs_size;
     blob_data.csb_cpu_type = CPU_TYPE_ARM64;
-    
     kwrite_buf(cs_blob, &blob_data, sizeof(cs_blob_t));
 
 #ifdef __arm64e__
-    uint64_t pmap_cs = kread64(cs_blob + 0xb0);
-    if (pmap_cs != 0 && pmap_cs != 0xdeadbeefdeadbeef) {
-        uint32_t current_trustlevel = kread32(pmap_cs + koffsetof(pmap_cs_code_directory, trust));
+    uint64_t pmap_cs_entry = kread64(cs_blob + 0xb0);
+    if (KADDR_VALID(pmap_cs_entry)) {
+        uint32_t current_trustlevel = kread32(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
         if (current_trustlevel != 1) {
-            uint64_t trustlevel_pa = kvtophys(pmap_cs + koffsetof(pmap_cs_code_directory, trust));
-            if (trustlevel_pa != 0) dma_write32(trustlevel_pa, 1);
+            uint64_t trustlevel_pa = kvtophys(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
+            if (trustlevel_pa != 0) {
+                ppl_write32(trustlevel_pa, 1);
+                usleep(1000);
+
+                current_trustlevel = kread32(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
+                if (current_trustlevel != 1) ppl_write32(trustlevel_pa, 1);
+            }
         }
     }
 #endif

@@ -12,7 +12,7 @@ static orig_spawn_t orig_posix_spawnp = NULL;
 
 static bool loader_blocked(const char *path, char **argv, posix_spawnattr_t *attr) {
     if (path == NULL || path[0] == '\0' || access("/usr/lib/base_hook.dylib", F_OK) != 0) return true;
-    if (atomic_read32(launchd_info->initialized) == 0 || atomic_read32(launchd_info->userspace_rebooting) == 1) return true;
+    if (kinfo->initialized == 0 || kinfo->userspace_rebooting == 1) return true;
     if (strstr(path, "debugserver") != NULL) return true;
 
     if (attr != NULL && *attr != NULL) {
@@ -99,14 +99,11 @@ static int spawn_handler(pid_t *pid, const char *path, posix_spawn_file_actions_
         setenv("DYLD_INSERT_LIBRARIES", "/amethyst/launchd_hook.dylib", 1);
         setenv("AMETHYST", "1", 1);
         usleep(100000);
-
-        atomic_write32(launchd_info->initialized, 1);
-        atomic_write32(launchd_info->userspace_rebooting, 0);
         return orig_spawn(pid, path, file_actions, attr, argv, environ);
     }
 
-    if (path != NULL && strcmp(path, "/usr/libexec/xpcproxy") == 0) {
-        atomic_write32(launchd_info->initialized, 1);
+    if (kinfo->initialized == 0 && path != NULL && strcmp(path, "/usr/libexec/xpcproxy") == 0) {
+        kinfo->initialized = 1;
     }
 
     if (loader_blocked(path, argv, attr)) {

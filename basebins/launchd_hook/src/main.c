@@ -4,22 +4,28 @@
 #include "loader.h"
 #include "jbserver.h"
 #include "codesign.h"
-#include "dma.h"
+#include "ppl.h"
 #include "trustcache.h"
 
 kinfo_t *kinfo = NULL;
-launchd_info_t *launchd_info = NULL;
 static bool using_tnsv2 = false;
 
 static int init_info(void) {
     kinfo = calloc(1, sizeof(kinfo_t));
+    if (kinfo == NULL) return -1;
+    kinfo->initialized = 0;
+    kinfo->userspace_rebooting = 0;
+    kinfo->shutting_down = 0;
+    kinfo->first_run = 0;
+    kinfo->using_tnsv2 = 0;
+
     host_get_special_port(mach_host_self(), HOST_LOCAL_NODE, 4, &kinfo->tfp0);
     if (!MACH_PORT_VALID(kinfo->tfp0)) return -1;
 
-    char str[32] = {0};
+    char str[64] = {0};
     CFDictionaryRef dict = _CFCopySystemVersionDictionary();
     CFStringRef version = CFDictionaryGetValue(dict, CFSTR("ProductVersion"));
-    CFStringGetCString(version, str, 32, kCFStringEncodingUTF8);
+    CFStringGetCString(version, str, sizeof(str)-1, kCFStringEncodingUTF8);
 
     sscanf(str, "%d.%d.%d", &kinfo->version[0], &kinfo->version[1], &kinfo->version[2]);
     CFRelease(dict);
@@ -148,26 +154,21 @@ static int init_info(void) {
     kinfo->patches.ptov_table = dict_get_u64(plist, "ptov_table");
     kinfo->patches.gPhysBase = dict_get_u64(plist, "gPhysBase");
     kinfo->patches.gVirtBase = dict_get_u64(plist, "gVirtBase");
+    kinfo->patches.pplrw_entry = dict_get_u64(plist, "pplrw_entry");
+    kinfo->patches.pplrw_mapping_va = dict_get_u64(plist, "pplrw_mapping_va");
+    kinfo->patches.pplrw_mapping_pa = dict_get_u64(plist, "pplrw_mapping_pa");
 
-    if (dict_get_u64(plist, "tnsv2") != 0) {
-        atomic_write32(launchd_info->using_tnsv2, 1);
+    if (dict_get_u64(plist, "tnsv2") == 0x4141) {
+        kinfo->using_tnsv2 = 1;
+    }
+
+    if (getenv("AMETHYST") == NULL) {
+        kinfo->first_run = 1;
     }
     return 0;
 }
 
 __attribute__((constructor)) void ctor(void) {
-    launchd_info = calloc(1, sizeof(launchd_info));
-    if (launchd_info == NULL) return;
-    if (getenv("AMETHYST") != NULL) {
-        atomic_write32(launchd_info->first_run, 0);
-    } else {
-        atomic_write32(launchd_info->first_run, 1);
-    }
-
-    atomic_write32(launchd_info->using_tnsv2, 0);
-    atomic_write32(launchd_info->initialized, 0);
-    atomic_write32(launchd_info->userspace_rebooting, 0);
-
     if (init_info() != 0) return;
     if ((kinfo->self_proc_addr = find_proc_for_pid(getpid())) == 0) return;
     if ((kinfo->self_task_addr = find_task_for_pid(getpid())) == 0) return;
@@ -177,10 +178,6 @@ __attribute__((constructor)) void ctor(void) {
     add_cs_flag(-1, kinfo->self_proc_addr, CS_PLATFORM_PATH|CS_DEBUGGED|CS_INVALID_ALLOWED|CS_GET_TASK_ALLOW|CS_VALID);
     remove_cs_flag(-1, kinfo->self_proc_addr, CS_KILL|CS_HARD|CS_RESTRICT|CS_ENFORCEMENT|CS_REQUIRE_LV);
 
-    if (atomic_read32(launchd_info->first_run) == 0) {
-        draw_splash_screen();
-    }
-
 #ifdef __arm64e__
     uint64_t self_vm_map = kread64(kinfo->self_task_addr + koffsetof(task, vm_map));
     if (!KADDR_VALID(self_vm_map)) return;
@@ -189,20 +186,20 @@ __attribute__((constructor)) void ctor(void) {
     if (!KADDR_VALID(self_pmap)) return;
 
     kinfo->self_ttep = kread64(self_pmap + koffsetof(pmap, ttep));
-    if (kinfo->self_ttep == 0 || dma_init() != 0) return;
+    if (kinfo->self_ttep == 0) return;
 
-    if (atomic_read32(launchd_info->first_run) == 0) {
+    if (kinfo->first_run == 0) {
         if (kread8(self_pmap + koffsetof(pmap, cs_enforced)) == 1) {
             uint64_t pa = kvtophys(self_pmap + koffsetof(pmap, cs_enforced));
-            if (pa != 0) dma_write8(pa, 0);
+            if (pa != 0) ppl_write8(pa, 0);
 
             uint64_t pmap_cs_entry = proc_get_pmap_cs_entry(kinfo->self_proc_addr);
             if (pmap_cs_entry != 0) {
                 uint32_t current_trustlevel = kread32(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
                 if (current_trustlevel != 1) {
                     uint64_t trustlevel_pa = kvtophys(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
-                    if (trustlevel_pa != 0) dma_write32(trustlevel_pa, 1);
-                }
+                    if (trustlevel_pa != 0) ppl_write32(trustlevel_pa, 1);
+                } 
             }    
         }
     }
@@ -210,7 +207,7 @@ __attribute__((constructor)) void ctor(void) {
 
     if (trustcache_init() != 0) return;
 #ifndef __arm64e__
-    if (atomic_read32(launchd_info->first_run) == 1 && atomic_read32(launchd_info->using_tnsv2) == 1) {
+    if (kinfo->first_run == 1 && kinfo->using_tnsv2 == 1) {
         trustcache_lock_add_binary("/usr/lib/dyld_patch");
     }
 #endif
@@ -218,7 +215,9 @@ __attribute__((constructor)) void ctor(void) {
     init_server();
     init_loader();
 
-    if (atomic_read32(launchd_info->first_run) == 1) {
-        atomic_write32(launchd_info->initialized, 1);
+    if (kinfo->first_run == 1) {
+        kinfo->initialized = 1;
+    } else {
+        draw_splash_screen();
     }
 }

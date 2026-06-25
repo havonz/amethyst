@@ -3,6 +3,9 @@
 
 #include "info.h"
 #include "basebin_util.h"
+#include <CoreGraphics/CoreGraphics.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <ImageIO/ImageIO.h>
 
 #define CFNUM(val) CFNumberCreate(NULL, kCFNumberIntType, &(int){val})
 #define KADDR_VALID(addr) (((addr) & 0xffff000000000000) == 0xffff000000000000)

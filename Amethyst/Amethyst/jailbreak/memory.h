@@ -80,6 +80,7 @@ extern kern_return_t mach_vm_remap(mach_port_t, mach_vm_address_t *, mach_vm_siz
 extern kern_return_t mach_vm_wire(host_priv_t, mach_port_t, mach_vm_address_t, mach_vm_size_t, vm_prot_t);
 extern kern_return_t mach_vm_region(mach_port_t, uint64_t *, uint64_t *, uint64_t, void *, uint64_t *, mach_port_t *);
 extern kern_return_t mach_vm_map(vm_map_t, mach_vm_address_t *, mach_vm_size_t, mach_vm_offset_t, int, mem_entry_name_port_t, memory_object_offset_t, boolean_t, vm_prot_t, vm_prot_t, vm_inherit_t);
+extern kern_return_t mach_vm_msync(vm_map_t, mach_vm_address_t, mach_vm_size_t, vm_sync_t);
 
 void kread_buf(uint64_t addr, void *data, uint32_t size);
 void kwrite_buf(uint64_t addr, void *data, uint32_t size);
@@ -96,6 +97,7 @@ uint64_t kalloc_wired(uint32_t size);
 void kfree(uint64_t addr, uint32_t size);
 void kzero(uint64_t addr, uint32_t size);
 uint64_t phystokv(uint64_t pa);
+uint64_t get_kva_pte(uint64_t va);
 uint64_t kvtophys(uint64_t va);
 uint64_t vtophys(uint64_t va);
 uint64_t phys_map_page(uint64_t pa);

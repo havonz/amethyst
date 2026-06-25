@@ -10,6 +10,7 @@
 #include "trustcache.h"
 #include "install.h"
 #include "dma.h"
+#include "ppl.h"
 #include "nvram.h"
 
 kinfo_t *kinfo = NULL;
@@ -325,8 +326,13 @@ jb_error_t run_jailbreak(uint32_t flags, char *generator) {
             reset_permissions();
             return JB_ERROR_PPL;
         }
+        
+        if (ppl_init() != 0) {
+            reset_permissions();
+            return JB_ERROR_PPL;
+        }
     }
-    
+        
     if (trustcache_init() != 0) {
         reset_permissions();
         return JB_ERROR_TRUSTCACHE;
@@ -434,7 +440,5 @@ jb_error_t run_jailbreak(uint32_t flags, char *generator) {
     usleep(1000000);
     userspace_reboot();
     reset_permissions();
-    usleep(100000);
-    exit(0);
     return 0;
 }

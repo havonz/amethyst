@@ -281,6 +281,28 @@ done:
     return status;
 }
 
+int vnode_hide_path(const char *path) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    usleep(10000);
+    sync();
+    
+    uint64_t vnode = vnode_for_fd(fd);
+    if (vnode == 0) {
+        close(fd);
+        return -1;
+    }
+    
+    kwrite32(vnode + 0x5c, kread32(vnode + 0x5c) + 10);
+    kwrite32(vnode + 0x60, kread32(vnode + 0x60) + 10);
+    kwrite32(vnode + 0x54, kread32(vnode + 0x54) | VISSHADOW);
+    usleep(10000);
+    sync();
+    
+    close(fd);
+    return 0;
+}
+
 int tnsv2_startup(void) {
     xpc_object_t chimera_plist = NULL;
     xpc_object_t amethyst_plist = NULL;
@@ -352,6 +374,7 @@ int tnsv2_startup(void) {
 
     inject_dylib(1, "/amethyst/launchd_hook.dylib");
     usleep(2000000);
+    vnode_hide_path("/chimera");
 
 done:
     if (chimera_plist != NULL) xpc_release(chimera_plist);

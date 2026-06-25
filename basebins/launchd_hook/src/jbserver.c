@@ -4,7 +4,7 @@
 #include "loader.h"
 #include "memory.h"
 #include "basebin_hook.h"
-#include "dma.h"
+#include "ppl.h"
 #include "trustcache.h"
 #include "jbserver.h"
 
@@ -139,7 +139,13 @@ static jbserver_err_t jbserver_preload_binary(xpc_object_t request, xpc_object_t
             uint32_t current_trustlevel = kread32(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
             if (current_trustlevel != 1) {
                 uint64_t trustlevel_pa = kvtophys(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
-                if (trustlevel_pa != 0) dma_write32(trustlevel_pa, 1);
+                if (trustlevel_pa != 0) {
+                    ppl_write32(trustlevel_pa, 1);
+                    usleep(1000);
+
+                    current_trustlevel = kread32(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
+                    if (current_trustlevel != 1) ppl_write32(trustlevel_pa, 1);
+                }
             }
         }
 #endif
@@ -209,29 +215,36 @@ static jbserver_err_t jbserver_init_process(xpc_object_t request, xpc_object_t r
         set_mac_slot(-1, proc, 1, 0);
     }
 
+#if defined(__arm64e__)
     uint64_t vm_map = kread64(task + koffsetof(task, vm_map));
     if (!KADDR_VALID(vm_map)) return JBSERVER_ERR_INVALID_PROCESS;
 
-#if defined(__arm64e__)
     uint64_t pmap = kread64(vm_map + koffsetof(vm_map, pmap));
     if (!KADDR_VALID(pmap)) return JBSERVER_ERR_INVALID_PROCESS;
-    
+
     if (kread8(pmap + koffsetof(pmap, cs_enforced)) == 1) {
         uint64_t pa = kvtophys(pmap + koffsetof(pmap, cs_enforced));
-        if (pa != 0) dma_write8(pa, 0);
+        if (pa != 0) {
+            ppl_write8(pa, 0);
+            usleep(1000);
+
+            if (kread8(pmap + koffsetof(pmap, cs_enforced)) == 1) {
+                ppl_write8(pa, 0);
+            }
+        }
 
         uint64_t pmap_cs_entry = proc_get_pmap_cs_entry(proc);
         if (pmap_cs_entry != 0) {
             uint32_t current_trustlevel = kread32(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
             if (current_trustlevel != 1) {
                 uint64_t trustlevel_pa = kvtophys(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
-                if (trustlevel_pa != 0) dma_write32(trustlevel_pa, 1);
+                if (trustlevel_pa != 0) ppl_write32(trustlevel_pa, 1);
             }
         }
+        if (kread8(pmap + koffsetof(pmap, cs_enforced)) == 1) return JBSERVER_ERR_UNKNOWN_FAILURE;
     }
 #endif
     return JBSERVER_ERR_SUCCESS;
-    
 }
 
 static jbserver_err_t jbserver_platformize(xpc_object_t request, xpc_object_t reply) {
@@ -348,7 +361,7 @@ static void jbserver_handle_request(xpc_object_t request) {
 }
 
 static void jbserver_prepare_reboot(void) {
-    atomic_write32(launchd_info->userspace_rebooting, 1);
+    kinfo->userspace_rebooting = 1;
     draw_splash_screen();
     usleep(100000);
 
@@ -394,7 +407,7 @@ static xpc_object_t jbserver_handle_xpc_message(xpc_object_t message) {
 
 static xpc_object_t xpc_serializer_unpack_hook(void *a1, void *a2, void *a3) {
     xpc_object_t message = xpc_serializer_unpack_orig(a1, a2, a3);
-    if (message == NULL || atomic_read32(launchd_info->initialized) == 0 || atomic_read32(launchd_info->userspace_rebooting) == 1) {
+    if (message == NULL || kinfo->initialized == 0 || kinfo->userspace_rebooting == 1) {
         return message;
     }
     return jbserver_handle_xpc_message(message);
@@ -403,7 +416,7 @@ static xpc_object_t xpc_serializer_unpack_hook(void *a1, void *a2, void *a3) {
 static int xpc_receive_mach_msg_hook(void *a1, void *a2, void *a3, void *a4, xpc_object_t *out) {
     xpc_object_t message = NULL;
     int status = xpc_receive_mach_msg_orig(a1, a2, a3, a4, &message);
-    if (message == NULL || atomic_read32(launchd_info->initialized) == 0 || atomic_read32(launchd_info->userspace_rebooting) == 1) {
+    if (message == NULL || kinfo->initialized == 0 || kinfo->userspace_rebooting == 1) {
         if (out != NULL) *out = message;
         return status;
     }

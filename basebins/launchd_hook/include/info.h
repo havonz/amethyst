@@ -14,8 +14,6 @@
 #define RB2_USERREBOOT                          0x2000000000000000LLU
 
 #define koffsetof(struct, entry) kinfo->offsets.struct.entry
-#define atomic_read32(var) ((uint32_t)atomic_load_explicit(&var, memory_order_seq_cst))
-#define atomic_write32(var, value) (atomic_store_explicit(&var, (uint32_t)(value), memory_order_seq_cst))
 
 typedef struct {
     uint64_t self_task_addr;
@@ -30,6 +28,11 @@ typedef struct {
     uint64_t self_ttep;
     uint64_t cpu_ttep;
     uint32_t version[3];
+    volatile uint32_t initialized;
+    volatile uint32_t userspace_rebooting;
+    volatile uint32_t shutting_down;
+    volatile uint32_t first_run;
+    volatile uint32_t using_tnsv2;
     
     struct {
         bool kpp;
@@ -136,19 +139,13 @@ typedef struct {
         uint64_t ptov_table;
         uint64_t gPhysBase;
         uint64_t gVirtBase;
+        uint64_t pplrw_entry;
+        uint64_t pplrw_mapping_va;
+        uint64_t pplrw_mapping_pa;
     } patches;
 } kinfo_t;
 
-typedef struct {
-    _Atomic uint32_t initialized;
-    _Atomic uint32_t userspace_rebooting;
-    _Atomic uint32_t shutting_down;
-    _Atomic uint32_t first_run;
-    _Atomic uint32_t using_tnsv2;
-} launchd_info_t;
-
 extern CFDictionaryRef _CFCopySystemVersionDictionary(void);
 extern kinfo_t *kinfo;
-extern launchd_info_t *launchd_info;
 
 #endif /* launchd_hook_info_h */

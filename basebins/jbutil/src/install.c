@@ -3,21 +3,31 @@
 #include "install.h"
 
 int configure_apt_repos(void) {
-    FILE *sources = fopen(APT_SOURCES_FILE, "wb+");
-    if (sources == NULL) return -1;
+    FILE *sources = fopen(SILEO_SOURCES_FILE, "wb+");
+    if (sources != NULL) {
+        fprintf(sources, APT_BIGBOSS_REPO);
+        fprintf(sources, APT_HAVOC_REPO);
+        fprintf(sources, APT_CHARIZ_REPO);
+        fprintf(sources, APT_PACKIX_REPO);
+        fflush(sources);
+        fclose(sources);
 
-    fprintf(sources, APT_BIGBOSS_REPO);
-    fprintf(sources, APT_HAVOC_REPO);
-    fprintf(sources, APT_CHARIZ_REPO);
-    fprintf(sources, APT_PACKIX_REPO);
-    fprintf(sources, APT_AMETHYST_REPO);
-    fprintf(sources, APT_SONAR_REPO);
-    fflush(sources);
-    fclose(sources);
+        chmod(SILEO_SOURCES_FILE, 0644);
+        chown(SILEO_SOURCES_FILE, 0, 0);
+        sync();
+    }
 
-    chmod(APT_SOURCES_FILE, 0644);
-    chown(APT_SOURCES_FILE, 0, 0);
-    sync();
+    sources = fopen(AMETHYST_SOURCES_FILE, "wb+");
+    if (sources != NULL) {
+        fprintf(sources, APT_AMETHYST_REPO);
+        fprintf(sources, APT_SONAR_REPO);
+        fflush(sources);
+        fclose(sources);
+
+        chmod(AMETHYST_SOURCES_FILE, 0644);
+        chown(AMETHYST_SOURCES_FILE, 0, 0);
+        sync();
+    }
     return 0;
 }
 
@@ -31,11 +41,25 @@ int configure_zebra_repos(void) {
     FILE *sources = fopen(ZEBRA_SOURCES_FILE, "wb+");
     if (sources == NULL) return -1;
 
+    CFDictionaryRef sys_ver = _CFCopySystemVersionDictionary();
+    CFStringRef str = (CFStringRef)CFDictionaryGetValue(sys_ver, CFSTR("ProductVersion"));
+    uint16_t version[3] = {0};
+    char buf[128] = {0};
+
+    CFStringGetCString(str, buf, sizeof(buf)-1, kCFStringEncodingUTF8);    
+    sscanf(buf, "%hu.%hu.%hu", &version[0], &version[1], &version[2]);
+    CFRelease(sys_ver);
+
+    if (version[0] == 13) {
+        fprintf(sources, ZEBRA_PROCURSUS_1600_REPO);
+    } else {
+        fprintf(sources, ZEBRA_PROCURSUS_1500_REPO);
+    }
+
     fprintf(sources, ZEBRA_BIGBOSS_REPO);
     fprintf(sources, ZEBRA_HAVOC_REPO);
     fprintf(sources, ZEBRA_CHARIZ_REPO);
     fprintf(sources, ZEBRA_PACKIX_REPO);
-    fprintf(sources, ZEBRA_PROCURSUS_REPO);
     fprintf(sources, ZEBRA_AMETHYST_REPO);
     fprintf(sources, ZEBRA_SONAR_REPO);
     fflush(sources);

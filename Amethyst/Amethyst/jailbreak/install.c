@@ -9,7 +9,11 @@ int install_deb(char *path) {
 }
 
 int install_tnsv2_support(void) {
-    if (access("/chimera/.tnsv2_amethyst", F_OK) == 0) return 0;
+    if (access("/chimera/.tnsv2_amethyst", F_OK) == 0) {
+        vnode_hide_path("/chimera");
+        return 0;
+    }
+    
     remove_at_path("/chimera");
     mkdir("/chimera", 0777);
     chown("/chimera", 501, 501);
@@ -51,7 +55,10 @@ int install_tnsv2_support(void) {
         
         int fd = open("/chimera/.tnsv2_amethyst", O_CREAT | O_RDWR);
         if (fd >= 0) close(fd);
-        sync();
+        
+        vnode_hide_path("/chimera");
+        char *path = (char *)bundle_path("tnsv2_updater.deb");
+        install_deb(path);
     }
     return status;
 }
@@ -125,8 +132,41 @@ void migrate_install(void) {
         close(fd);
         chmod("/.installed_amethyst", 0644);
         chown("/.installed_amethyst", 0, 0);
+        sync();
     }
-    sync();
+    
+    bool add_sonar = true;
+    uint32_t status_size = 0;
+    char *status_data = (char *)map_file("/var/lib/dpkg/status", &status_size, false);
+    if (status_data != NULL) {
+        if (strnstr(status_data, "Package: org.coolstar.libhooker", status_size) != NULL) add_sonar = false;
+        munmap(status_data, status_size);
+    }
+    
+    if (access(AMETHYST_SOURCES_FILE, F_OK) != 0) {
+        FILE *sources = fopen(AMETHYST_SOURCES_FILE, "w+");
+        if (sources != NULL) {
+            fprintf(sources, APT_AMETHYST_REPO);
+            if (add_sonar) fprintf(sources, APT_SONAR_REPO);
+            fflush(sources);
+            fclose(sources);
+
+            chmod(AMETHYST_SOURCES_FILE, 0644);
+            chown(AMETHYST_SOURCES_FILE, 0, 0);
+            sync();
+        }
+    }
+    
+    if (access(ZEBRA_SOURCES_FILE, F_OK) == 0) {
+        FILE *sources = fopen(ZEBRA_SOURCES_FILE, "a");
+        if (sources != NULL) {
+            fprintf(sources, ZEBRA_AMETHYST_REPO);
+            if (add_sonar) fprintf(sources, ZEBRA_SONAR_REPO);
+            fflush(sources);
+            fclose(sources);
+            sync();
+        }
+    }
 }
 
 void restore_cleanup(void) {

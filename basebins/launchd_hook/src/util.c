@@ -1,21 +1,21 @@
 #include "info.h"
 #include "memory.h"
 #include "util.h"
+#include "ppl.h"
 
-#include <CoreGraphics/CoreGraphics.h>
-#include <CoreFoundation/CoreFoundation.h>
-#include <ImageIO/ImageIO.h>
-
-static int (*IOMobileFramebufferGetMainDisplay)(void**) = NULL;
-static int (*IOMobileFramebufferGetLayerDefaultSurface)(void*, int, void **) = NULL;
-static int (*IOMobileFramebufferGetDisplaySize)(void *pointer, CGSize *size) = NULL;
-static void *(*IOSurfaceCreate)(CFDictionaryRef properties) = NULL;
-static int (*IOSurfaceLock)(void *buffer, uint32_t options, uint32_t *seed) = NULL;
-static int (*IOMobileFramebufferSwapBegin)(void *, int *) = NULL;
-static int (*IOMobileFramebufferSwapSetLayer)(void *, int, void *, CGRect, CGRect, int) = NULL;
-static int (*IOMobileFramebufferSwapEnd)(void *) = NULL;
-static void *(*IOSurfaceGetBaseAddress)(void *buffer) = NULL;
-static size_t (*IOSurfaceGetBytesPerRow)(void *buffer) = NULL;
+extern int IOMobileFramebufferGetMainDisplay(void**);
+extern int IOMobileFramebufferGetLayerDefaultSurface(void*, int, void **);
+extern int IOMobileFramebufferGetDisplaySize(void *pointer, CGSize *size);
+extern void *IOSurfaceCreate(CFDictionaryRef properties);
+extern int IOSurfaceLock(void *buffer, uint32_t options, uint32_t *seed);
+extern int IOSurfaceUnlock(void *buffer, uint32_t options, uint32_t *seed);
+extern int IOMobileFramebufferSwapBegin(void *, int *);
+extern int IOMobileFramebufferSwapSetLayer(void *, int, void *, CGRect, CGRect, int);
+extern int IOMobileFramebufferSwapEnd(void *);
+extern void *IOSurfaceGetBaseAddress(void *buffer);
+extern size_t IOSurfaceGetBytesPerRow(void *buffer);
+extern size_t IOSurfaceAlignProperty(CFStringRef property, size_t value);
+extern const CFStringRef kIOSurfaceBytesPerRow;
 
 static pthread_mutex_t process_lock = PTHREAD_MUTEX_INITIALIZER;
 static pid_t self_pid = -1;
@@ -94,9 +94,13 @@ pid_t find_pid_for_name(const char *name) {
     }
 
     char *current_name = calloc(1, PROC_PIDPATHINFO_MAXSIZE+1);
+    if (current_name == NULL) {
+        free(pids);
+        return -1;
+    }
+
     pid_t target_pid = -1;
-    
-    for (int i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         bzero(current_name, PROC_PIDPATHINFO_MAXSIZE+1);
         if (proc_name(pids[i], current_name, PROC_PIDPATHINFO_MAXSIZE) <= 0) continue;
         if (strncmp((const char *)current_name, name, PROC_PIDPATHINFO_MAXSIZE) == 0) {
@@ -266,32 +270,6 @@ uint64_t proc_get_pmap_cs_entry(uint64_t proc) {
 #endif
 }
 
-static int init_io(void) {
-    if (io_init_done) return 0;
-    void *surface_handle = dlopen("/System/Library/Frameworks/IOSurface.framework/IOSurface", RTLD_NOW);
-    if (surface_handle == NULL) {
-        surface_handle = dlopen("/System/Library/PrivateFrameworks/IOSurface.framework/IOSurface", RTLD_NOW);
-        if (surface_handle == NULL) return -1;
-    }
-
-    void *fb_handle = dlopen("/System/Library/PrivateFrameworks/IOMobileFramebuffer.framework/IOMobileFramebuffer", RTLD_NOW);
-    if (surface_handle == NULL) return -1;
-
-    if ((IOSurfaceCreate = dlsym(surface_handle, "IOSurfaceCreate")) == NULL) return -1;
-    if ((IOSurfaceLock = dlsym(surface_handle, "IOSurfaceLock")) == NULL) return -1;
-    if ((IOSurfaceGetBaseAddress = dlsym(surface_handle, "IOSurfaceGetBaseAddress")) == NULL) return -1;
-    if ((IOSurfaceGetBytesPerRow = dlsym(surface_handle, "IOSurfaceGetBytesPerRow")) == NULL) return -1;
-    if ((IOMobileFramebufferGetMainDisplay = dlsym(fb_handle, "IOMobileFramebufferGetMainDisplay")) == NULL) return -1;
-    if ((IOMobileFramebufferGetLayerDefaultSurface = dlsym(fb_handle, "IOMobileFramebufferGetLayerDefaultSurface")) == NULL) return -1;
-    if ((IOMobileFramebufferGetDisplaySize = dlsym(fb_handle, "IOMobileFramebufferGetDisplaySize")) == NULL) return -1;
-    if ((IOMobileFramebufferSwapBegin = dlsym(fb_handle, "IOMobileFramebufferSwapBegin")) == NULL) return -1;
-    if ((IOMobileFramebufferSwapSetLayer = dlsym(fb_handle, "IOMobileFramebufferSwapSetLayer")) == NULL) return -1;
-    if ((IOMobileFramebufferSwapEnd = dlsym(fb_handle, "IOMobileFramebufferSwapEnd")) == NULL) return -1;
-
-    io_init_done = true;
-    return 0;
-}
-
 int draw_splash_screen(void) {
     void *display = NULL;
     CGSize display_size = CGSizeMake(0, 0);
@@ -305,7 +283,6 @@ int draw_splash_screen(void) {
     uint32_t jp2_size = 0;
     int status = -1;
 
-    if (init_io() != 0) return -1;
     struct mach_header_64 *hdr = NULL;
     uint32_t count = _dyld_image_count();
 
@@ -355,10 +332,10 @@ int draw_splash_screen(void) {
     if ((surface = IOSurfaceCreate(dict)) == NULL) goto done;
     IOSurfaceLock(surface, 0, 0);
 
-    if (atomic_read32(launchd_info->first_run) == 1 || atomic_read32(launchd_info->userspace_rebooting) == 1) {
+  //  if (kinfo->first_run == 1) {
         pid_t backboardd_pid = find_pid_for_name("backboardd");
         if (backboardd_pid != -1) kill(backboardd_pid, SIGTERM);
-    }
+  //  }
 
     if (IOMobileFramebufferSwapBegin(display, &token) != 0) goto done;
     if (IOMobileFramebufferSwapSetLayer(display, 0, surface, frame, frame, 0) != 0) goto done;

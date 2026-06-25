@@ -36,6 +36,7 @@
 #define CS_EXECSEG_JIT                          0x00000040
 #define CS_EXECSEG_SKIP_LV                      0x00000080
 #define P_SUGID                                 0x00000100
+#define VISSHADOW                               0x00008000
 
 extern xpc_object_t xpc_create_from_plist(void *data, size_t size);
 

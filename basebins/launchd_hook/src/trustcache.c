@@ -1,7 +1,7 @@
 
 #include "util.h"
 #include "memory.h"
-#include "dma.h"
+#include "ppl.h"
 #include "codesign.h"
 #include "trustcache.h"
 
@@ -137,7 +137,7 @@ int trustcache_init(void) {
             tc_info->dynamic_size = sizeof(dynamic_trustcache_hdr_v0_t) + (sizeof(dynamic_trustcache_entry_v0_t) * tc_info->dynamic_count);
             uint64_t next = kread64(kinfo->patches.dynamic_trustcache);
 
-            if (atomic_read32(launchd_info->using_tnsv2) == 0) {
+            if (kinfo->using_tnsv2 == 0) {
                 while (1) {
                     if (next == 0) break;
                     if (kread64(next + sizeof(dynamic_trustcache_hdr_v0_t)) == TRUSTCACHE_MAGIC) {
@@ -148,9 +148,10 @@ int trustcache_init(void) {
                 }
             }
   
-            
             if (tc_info->dynamic_hdr == 0) {
                 dynamic_trustcache_hdr_v0_t *dynamic_trustcache = calloc(1, tc_info->dynamic_size);
+                if (dynamic_trustcache == NULL) goto err;
+
                 dynamic_trustcache->next = next;
                 dynamic_trustcache->count = tc_info->dynamic_count;
                 arc4random_buf(dynamic_trustcache->uuid, 16);
@@ -166,7 +167,7 @@ int trustcache_init(void) {
                 if (kinfo->protections.ppl) {
                     uint64_t pa = kvtophys(kinfo->patches.dynamic_trustcache);
                     if (pa == 0) goto err;
-                    dma_write64(pa, tc_info->dynamic_hdr);
+                    ppl_write64(pa, tc_info->dynamic_hdr);
                 } else {
                     kwrite64(kinfo->patches.dynamic_trustcache, tc_info->dynamic_hdr);
                 }
@@ -187,7 +188,7 @@ int trustcache_init(void) {
                 dynamic_trustcache_list_t current_list = {0};
                 kread_buf(next, &current_list, sizeof(dynamic_trustcache_list_t));
 
-                if (current_list.list != 0) {
+                if (KADDR_VALID(current_list.list)) {
                     dynamic_trustcache_hdr_v1_t current_hdr = {0};
                     kread_buf(current_list.list, &current_hdr, sizeof(dynamic_trustcache_hdr_v1_t));
 
@@ -209,7 +210,6 @@ int trustcache_init(void) {
                     goto err;
                 }
                 
-                kzero(kern_entries, tc_info->dynamic_size);
                 for (uint32_t i = 0; i < tc_info->dynamic_count; i++) {
                     uint64_t current_entry_addr = kern_entries + (sizeof(dynamic_trustcache_full_entry_t) * i);
                     uint64_t next_entry_addr = current_entry_addr + sizeof(dynamic_trustcache_full_entry_t);
@@ -233,7 +233,7 @@ int trustcache_init(void) {
                 if (kinfo->protections.ppl) {
                     uint64_t pa = kvtophys(kinfo->patches.dynamic_trustcache);
                     if (pa == 0) goto err;
-                    dma_write64(pa, kern_entries);
+                    ppl_write64(pa, kern_entries);
                 } else {
                     kwrite64(kinfo->patches.dynamic_trustcache, kern_entries);
                 }

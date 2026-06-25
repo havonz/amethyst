@@ -830,9 +830,7 @@
     if ((targetProgress - cachedProgress) >= 0.15) interval = 0.01;
     if (self.lastTimer != NULL) [self.lastTimer invalidate];
     self.progressLabel.text = label;
-
-    NSLog(@"[%@] target: %.2f, cached: %.2f, interval: %.2f", label, targetProgress, cachedProgress, interval);
-
+    
     [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer * _Nonnull timer) {
         self.lastTimer = timer;
         if (targetProgress <= 0.0) {
