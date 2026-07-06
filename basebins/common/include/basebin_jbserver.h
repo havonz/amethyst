@@ -62,6 +62,7 @@ static const char *sb_full_override_list[] = {
 jbserver_err_t jbserver_trustcache(xpc_object_t hash_list, xpc_object_t type_list);
 jbserver_err_t jbserver_sign_binary(const char *path, uint32_t le_offset, uint32_t le_size, uint32_t slice_offset, uint32_t file_type);
 jbserver_err_t jbserver_init_process(pid_t pid, uid_t target_uid, gid_t target_gid, jbserver_unsandbox_t unsandbox_type);
+jbserver_err_t jbserver_reinit_process(pid_t pid);
 jbserver_err_t jbserver_preload_binary(const char *path);
 jbserver_err_t jbserver_platformize(pid_t pid);
 jbserver_err_t jbserver_unsandbox(pid_t pid, jbserver_unsandbox_t unsandbox_type);

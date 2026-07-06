@@ -196,7 +196,7 @@ __attribute__((constructor)) void ctor(void) {
                 if (current_trustlevel != 1) {
                     uint64_t trustlevel_pa = kvtophys(pmap_cs_entry + koffsetof(pmap_cs_code_directory, trust));
                     if (trustlevel_pa != 0) ppl_write32(trustlevel_pa, 1);
-                } 
+                }
             }    
         }
     }

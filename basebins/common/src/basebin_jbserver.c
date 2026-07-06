@@ -86,8 +86,8 @@ jbserver_err_t jbserver_sign_binary(const char *path, uint32_t le_offset, uint32
 jbserver_err_t jbserver_init_process(pid_t pid, uid_t target_uid, gid_t target_gid, jbserver_unsandbox_t unsandbox_type) {
     xpc_object_t request = jbserver_init_msg(JBSERVER_CMD_INIT_PROCESS);
     if (pid != getpid()) xpc_dictionary_set_int64(request, "pid", (int64_t)pid);
-    if (target_uid != getuid()) xpc_dictionary_set_int64(request, "target_uid", (int64_t)target_uid);
-    if (target_gid != getgid()) xpc_dictionary_set_int64(request, "target_gid", (int64_t)target_uid);
+    if (target_uid != getuid() && target_uid != -1) xpc_dictionary_set_int64(request, "target_uid", (int64_t)target_uid);
+    if (target_gid != getgid() && target_gid != -1) xpc_dictionary_set_int64(request, "target_gid", (int64_t)target_uid);
     xpc_dictionary_set_uint64(request, "unsandbox_type", unsandbox_type);
 
     xpc_object_t reply = NULL;
@@ -114,6 +114,16 @@ jbserver_err_t jbserver_init_process(pid_t pid, uid_t target_uid, gid_t target_g
     }
 
     xpc_release(reply);
+    return err;
+}
+
+jbserver_err_t jbserver_reinit_process(pid_t pid) {
+    xpc_object_t request = jbserver_init_msg(JBSERVER_CMD_INIT_PROCESS);
+    if (pid != getpid()) xpc_dictionary_set_int64(request, "pid", (int64_t)pid);
+
+    xpc_dictionary_set_bool(request, "reinit", true);
+    jbserver_err_t err = jbserver_send_msg(request);
+    xpc_release(request);
     return err;
 }
 
@@ -338,7 +348,7 @@ jbserver_err_t jbserver_process_binary(const char *path, bool *external_libswift
 }
 
 jbserver_unsandbox_t jbserver_unsandbox_type(const char *exec_path) {
-   //return JBSERVER_UNSANDBOX_FULL;
+  // return JBSERVER_UNSANDBOX_FULL;
 
     if (exec_path == NULL || sandbox_check(getpid(), NULL, 0, NULL) == 0) return JBSERVER_UNSANDBOX_NONE;
     if (strstr(exec_path, "PluginKitPlugin") != NULL || strstr(exec_path, ".appex") != NULL || strstr(exec_path, "XPCServices") != NULL) {
@@ -366,7 +376,8 @@ jbserver_unsandbox_t jbserver_unsandbox_type(const char *exec_path) {
         if (dict_get_bool(ents, "com.apple.private.security.sandbox") == 0 || 
             dict_get_bool(ents, "com.apple.private.security.no-sandbox") == 1 ||
             dict_get_bool(ents, "com.apple.private.security.container-required") == 0 ||
-            dict_get_bool(ents, "com.apple.private.security.no-container") == 1) {
+            dict_get_bool(ents, "com.apple.private.security.no-container") == 1 ||
+            dict_get_bool(ents, "com.apple.private.skip-library-validation") == 1) {
             xpc_release(ents);
             return JBSERVER_UNSANDBOX_FULL;
         }

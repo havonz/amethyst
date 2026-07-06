@@ -624,33 +624,37 @@ macho_signature_t *macho_get_signature(macho_slice_t *slice) {
             if (!signature->is_fakesigned && slice->file_type == MH_EXECUTE) {
                 uint8_t *hash_list = (uint8_t *)signature->code_dir + ntohl(signature->code_dir->hashOffset);
                 uint8_t *first_page = slice->file_data + slice->offset;
-                uint8_t expected_hash[64] = {0};
-                uint32_t hash_size = 0;
                 uint32_t page_size = (1U << signature->code_dir->pageSize);
+                uint32_t hash_slots = ntohl(signature->code_dir->nCodeSlots);
+                uint32_t hash_size = 0;
 
                 switch (signature->hash_type) {
-                    case CS_HASHTYPE_SHA1:
-                        CC_SHA1(first_page, page_size, expected_hash);
-                        hash_size = 20;
-                        break;
-                    case CS_HASHTYPE_SHA256:
-                        CC_SHA256(first_page, page_size, expected_hash); 
-                        hash_size = 32;
-                        break;
-                    case CS_HASHTYPE_SHA256_TRUNCATED:
-                        CC_SHA256(first_page, page_size, expected_hash); 
-                        hash_size = 20;
-                        break;
-                    case CS_HASHTYPE_SHA384:
-                        CC_SHA384(first_page, page_size, expected_hash);
-                        hash_size = 48;
-                        break;
+                    case CS_HASHTYPE_SHA1: hash_size = 20; break;
+                    case CS_HASHTYPE_SHA256: hash_size = 32; break;
+                    case CS_HASHTYPE_SHA256_TRUNCATED: hash_size = 20; break;
+                    case CS_HASHTYPE_SHA384: hash_size = 48; break;
                     default: break;
                 }
 
-                if (hash_size != 0 && memcmp(hash_list, expected_hash, hash_size) != 0) {
-                    signature->is_fakesigned = true;
-                    if (app_path != NULL) add_fakesigned(app_path);
+                if (hash_size != 0) {
+                    uint8_t expected_hash[64] = {0};
+
+                    for (uint32_t i = 0; i < hash_slots; i++) {
+                        uint8_t *hash_slot = hash_list + (i * hash_size);
+                        uint8_t *code_data = first_page + (i * page_size);
+
+                        uint32_t code_size = page_size;
+                        if (i == (hash_slots - 1)) {
+                            code_size = ntohl(signature->code_dir->codeLimit) - (i * page_size);
+                        }
+
+                        CC_SHA256(code_data, code_size, expected_hash);
+                        if (memcmp(hash_list, expected_hash, hash_size) != 0) {
+                            signature->is_fakesigned = true;
+                            if (app_path != NULL) add_fakesigned(app_path);
+                            break;
+                        }
+                    }
                 }
             }
             if (app_path != NULL) free(app_path);

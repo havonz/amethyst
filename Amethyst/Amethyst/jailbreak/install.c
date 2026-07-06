@@ -10,8 +10,32 @@ int install_deb(char *path) {
 
 int install_tnsv2_support(void) {
     if (access("/chimera/.tnsv2_amethyst", F_OK) == 0) {
-        char *path = (char *)bundle_path("tnsv2_updater_stub.deb");
-        if (path != NULL) install_deb(path);
+        bool should_install = true;
+        char *app_version = get_app_version();
+        
+        if (app_version != NULL) {
+            char target_version[128] = {0};
+            snprintf(target_version, sizeof(target_version)-1, "Version: %s", app_version);
+            free(app_version);
+            
+            uint32_t status_size = 0;
+            char *status_data = (char *)map_file("/var/lib/dpkg/status", &status_size, false);
+            
+            if (status_data != NULL) {
+                char *info = strnstr(status_data, "Package: com.staturnz.tnsv2-updater", status_size);
+                if (info != NULL && strnstr(info, target_version, 256) != NULL) {
+                    should_install = false;
+                }
+                munmap(status_data, status_size);
+            }
+        }
+        
+        printf("should_install: %d\n", should_install);
+        if (should_install) {
+            char *path = (char *)bundle_path("tnsv2_updater_stub.deb");
+            if (path != NULL) install_deb(path);
+        }
+        
         vnode_hide_path("/chimera");
         return 0;
     }

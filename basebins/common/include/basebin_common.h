@@ -74,6 +74,7 @@ extern int posix_spawnattr_getprocesstype_np(posix_spawnattr_t *, int *);
 extern int proc_listpids(uint32_t type, uint32_t typeinfo, void *buffer, int buffersize);
 extern int proc_name(int pid, void *buffer, uint32_t buffersize);
 extern int csops(pid_t pid, unsigned int  ops, void *useraddr, size_t usersize);
+extern int ptrace(int request, pid_t pid, uint64_t addr, int data);
 extern char ***_NSGetArgv(void);
 extern char ***_NSGetEnviron(void);
 extern char **_NSGetProgname(void);
@@ -95,5 +96,6 @@ extern void xpc_dictionary_set_mach_send(xpc_object_t xdict, const char *key, ma
 
 extern int sandbox_check(pid_t pid, const char *operation, uint32_t type, ...);
 extern int64_t sandbox_extension_consume(const char *extension_token);
+extern int sandbox_check_by_audit_token(audit_token_t at, const char *op, int filter, ...);
 
 #endif /* basebins_common_h */

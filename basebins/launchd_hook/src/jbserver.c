@@ -11,11 +11,13 @@
 static xpc_object_t (*xpc_serializer_unpack_orig)(void *, void *, void *) = NULL;
 static int (*xpc_receive_mach_msg_orig)(void *a1, void *a2, void *a3, void *a4, xpc_object_t *output) = NULL;
 static xpc_object_t (*xpc_dictionary_get_value_orig)(xpc_object_t dict, const char *key) = NULL;
-static int (*MISValidateSignatureAndCopyInfo)(CFStringRef File, CFDictionaryRef Opts, void **Info);
+static int (*sandbox_check_by_audit_token_orig)(audit_token_t, const char *, int, ...) = NULL;
+
+static xpc_object_t sandbox_ext_array = NULL;
 pthread_mutex_t fakesigned_lock = PTHREAD_MUTEX_INITIALIZER;
 xpc_object_t fakesigned_dict = NULL;
 
-static sandbox_ext_t sb_ext[] = {
+static sandbox_ext_t sandbox_ext_list[] = {
     {SANDBOX_READ, "/private/var/mobile"},
     {SANDBOX_READ, "/amethyst"},
     {SANDBOX_READ_WRITE, "/private/var/mobile/Library/Preferences"},
@@ -25,6 +27,14 @@ static sandbox_ext_t sb_ext[] = {
     {SANDBOX_EXECUTABLE, "/private/var"},
     {SANDBOX_EXECUTABLE, "/amethyst"},
     {NULL, NULL}
+};
+
+static lookup_info_t lookup_allow_list[] = {
+    {"cy:", 3},
+    {"lh:", 3},
+    {"com.ex.substituted", 18},
+    {"com.apple.ReportCrash.SimulateCrash", 35},
+    {NULL, 0}
 };
 
 static pid_t jbserver_getpid(xpc_object_t request) {
@@ -161,14 +171,13 @@ static jbserver_err_t jbserver_preload_binary(xpc_object_t request, xpc_object_t
 static jbserver_err_t jbserver_init_process(xpc_object_t request, xpc_object_t reply) {
     pid_t pid = jbserver_getpid(request);
     if (pid <= 0) return JBSERVER_ERR_INVALID_PROCESS;
-
+    bool reinit_only = xpc_dictionary_get_bool(request, "reinit");
     uint64_t proc = 0;
     uint64_t task = 0;
-    if (get_process_info(pid, &proc, &task) != 0) return JBSERVER_ERR_INVALID_PROCESS;
+    uint64_t ucred = 0;
 
-    uint64_t ucred = kread64(proc + koffsetof(proc, ucred));
-    if (!KADDR_VALID(ucred)) return JBSERVER_ERR_INVALID_PROCESS;
-    add_task_flag(-1, task, TF_PLATFORM);
+    if (get_process_info(pid, &proc, &task) != 0) return JBSERVER_ERR_INVALID_PROCESS;
+    if (!reinit_only) add_task_flag(-1, task, TF_PLATFORM);
     fixup_cs_flags(proc);
 
   	uint32_t proc_flags = kread32(proc + koffsetof(proc, p_flag));
@@ -176,45 +185,43 @@ static jbserver_err_t jbserver_init_process(xpc_object_t request, xpc_object_t r
         kwrite32(proc + koffsetof(proc, p_flag), proc_flags & ~P_SUGID);
     }
 
-    xpc_object_t xpc_target_uid = xpc_dictionary_get_value_orig(request, "target_uid");
-    if (xpc_target_uid != NULL && xpc_get_type(xpc_target_uid) && XPC_TYPE_INT64) {
-        uid_t target_uid = (uid_t)xpc_int64_get_value(xpc_target_uid);
-        kwrite32(proc + koffsetof(proc, p_svuid), target_uid);
-        kwrite32(ucred + koffsetof(ucred, cr_svuid), target_uid);
-        kwrite32(ucred + koffsetof(ucred, cr_uid), target_uid);
-    }
+    if (!reinit_only) {
+        xpc_object_t xpc_target_uid = xpc_dictionary_get_value_orig(request, "target_uid");
+        if (xpc_target_uid != NULL && xpc_get_type(xpc_target_uid) && XPC_TYPE_INT64) {
+            uid_t target_uid = (uid_t)xpc_int64_get_value(xpc_target_uid);
 
-    xpc_object_t xpc_target_gid = xpc_dictionary_get_value_orig(request, "target_gid");
-    if (xpc_target_gid != NULL && xpc_get_type(xpc_target_uid) && XPC_TYPE_INT64) {
-        uid_t target_gid = (uid_t)xpc_int64_get_value(xpc_target_gid);
-        kwrite32(proc + koffsetof(proc, p_svgid), target_gid);
-        kwrite32(ucred + koffsetof(ucred, cr_svgid), target_gid);
-        kwrite32(ucred + koffsetof(ucred, cr_groups), target_gid);
-    }
-
-    jbserver_unsandbox_t unsandbox_type = (uint32_t)xpc_dictionary_get_uint64(request, "unsandbox_type");
-    if (unsandbox_type == JBSERVER_UNSANDBOX_EXTENSIONS) {
-        xpc_object_t extensions = xpc_array_create(NULL, 0);
-        if (extensions == NULL) return JBSERVER_ERR_UNKNOWN_FAILURE;
-
-        for (int i = 0; sb_ext[i].cls; i++) {
-            char *ext = sandbox_extension_issue_file(sb_ext[i].cls, sb_ext[i].path, 0);
-            if (ext == NULL) continue;
-
-            xpc_object_t str = xpc_string_create(ext);
-            if (str != NULL) {
-                xpc_array_append_value(extensions, str);
-                xpc_release(str);
+            if (jbserver_getuid(request) != target_uid) {
+                ucred = kread64(proc + koffsetof(proc, ucred));
+                if (KADDR_VALID(ucred)) {
+                    kwrite32(proc + koffsetof(proc, p_svuid), target_uid);
+                    kwrite32(ucred + koffsetof(ucred, cr_svuid), target_uid);
+                    kwrite32(ucred + koffsetof(ucred, cr_uid), target_uid);
+                }
             }
-            free(ext);
         }
 
-        if (xpc_array_get_count(extensions) > 0) {
-            xpc_dictionary_set_value(reply, "extensions", extensions);
+        xpc_object_t xpc_target_gid = xpc_dictionary_get_value_orig(request, "target_gid");
+        if (xpc_target_gid != NULL && xpc_get_type(xpc_target_uid) && XPC_TYPE_INT64) {
+            uid_t target_gid = (uid_t)xpc_int64_get_value(xpc_target_gid);
+
+            if (jbserver_getgid(request) != target_gid) {
+                if (!KADDR_VALID(ucred)) ucred = kread64(proc + koffsetof(proc, ucred));
+                if (KADDR_VALID(ucred)) {
+                    kwrite32(proc + koffsetof(proc, p_svgid), target_gid);
+                    kwrite32(ucred + koffsetof(ucred, cr_svgid), target_gid);
+                    kwrite32(ucred + koffsetof(ucred, cr_groups), target_gid);
+                }
+            }
         }
-        xpc_release(extensions);
-    } else if (unsandbox_type == JBSERVER_UNSANDBOX_FULL) {
-        set_mac_slot(-1, proc, 1, 0);
+
+        jbserver_unsandbox_t unsandbox_type = (uint32_t)xpc_dictionary_get_uint64(request, "unsandbox_type");
+        if (unsandbox_type == JBSERVER_UNSANDBOX_EXTENSIONS) {
+            if (sandbox_ext_array != NULL) {
+                xpc_dictionary_set_value(reply, "extensions", sandbox_ext_array);
+            }
+        } else if (unsandbox_type == JBSERVER_UNSANDBOX_FULL) {
+            set_mac_slot(pid, 0, 1, 0);
+        }
     }
 
 #if defined(__arm64e__)
@@ -268,25 +275,9 @@ static jbserver_err_t jbserver_unsandbox(xpc_object_t request, xpc_object_t repl
     jbserver_unsandbox_t unsandbox_type = (uint32_t)xpc_dictionary_get_uint64(request, "unsandbox_type");
     
     if (unsandbox_type == JBSERVER_UNSANDBOX_EXTENSIONS) {
-        xpc_object_t extensions = xpc_array_create(NULL, 0);
-        if (extensions == NULL) return JBSERVER_ERR_UNKNOWN_FAILURE;
-
-        for (int i = 0; sb_ext[i].cls; i++) {
-            char *ext = sandbox_extension_issue_file(sb_ext[i].cls, sb_ext[i].path, 0);
-            if (ext == NULL) continue;
-
-            xpc_object_t str = xpc_string_create(ext);
-            if (str != NULL) {
-                xpc_array_append_value(extensions, str);
-                xpc_release(str);
-            }
-            free(ext);
+        if (sandbox_ext_array != NULL) {
+            xpc_dictionary_set_value(reply, "extensions", sandbox_ext_array);
         }
-
-        if (xpc_array_get_count(extensions) > 0) {
-            xpc_dictionary_set_value(reply, "extensions", extensions);
-        }
-        xpc_release(extensions);
     } else if (unsandbox_type == JBSERVER_UNSANDBOX_FULL) {
         set_mac_slot(pid, 0, 1, 0);
     }
@@ -492,10 +483,57 @@ static xpc_object_t xpc_dictionary_get_value_hook(xpc_object_t dict, const char 
     return value;
 }
 
+static int sandbox_check_by_audit_token_hook(audit_token_t at, const char *op, int filter, ...) {
+	va_list va = NULL;
+	va_start(va, filter);
+    void *args[8] = {0};
+
+    for (uint32_t i = 0; i < 8; i++) {
+        args[i] = va_arg(va, void *);
+    }
+	va_end(va);
+
+    if (op != NULL && strcmp(op, "mach-lookup") == 0) {
+        char *service_name = (char *)(args[0]);
+
+        if (service_name != NULL) {
+            for (uint32_t i = 0; lookup_allow_list[i].name != NULL; i++) {
+                if (strncmp(service_name, lookup_allow_list[i].name, lookup_allow_list[i].len) == 0) {
+                    return 0;
+                }
+            }
+        }
+    }
+    return sandbox_check_by_audit_token_orig(at, op, filter, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+}
+
 int init_server(void) {
     void *handle = dlopen("/usr/lib/system/libxpc.dylib", RTLD_NOW);
     if (handle == NULL) handle = RTLD_DEFAULT;
+
     if ((fakesigned_dict = xpc_dictionary_create(NULL, NULL, 0)) == NULL) return -1;
+    if ((sandbox_ext_array = xpc_array_create(NULL, 0)) == NULL) return -1;
+    xpc_retain(fakesigned_dict);
+
+    for (uint32_t i = 0; sandbox_ext_list[i].value != NULL; i++) {
+        char *ext = sandbox_extension_issue_file(sandbox_ext_list[i].cls, sandbox_ext_list[i].value, 0);
+        if (ext == NULL) continue;
+
+        xpc_object_t str = xpc_string_create(ext);
+        if (str != NULL) {
+            xpc_array_append_value(sandbox_ext_array, str);
+            xpc_release(str);
+        }
+        free(ext);
+    }
+
+    if (xpc_array_get_count(sandbox_ext_array) <= 0) {
+        xpc_release(sandbox_ext_array);
+        sandbox_ext_array = NULL;
+    } else {
+        xpc_retain(sandbox_ext_array);
+    }
+
 
     if (kinfo->version[0] <= 12) {
         void *symbol = dlsym(handle, "_xpc_serializer_unpack");
@@ -511,6 +549,7 @@ int init_server(void) {
         if (status != 0 || xpc_receive_mach_msg_orig == NULL) return -1;
     }
 
+    hook_function(sandbox_check_by_audit_token, (void *)sandbox_check_by_audit_token_hook, (void **)&sandbox_check_by_audit_token_orig);
     int status = hook_function(xpc_dictionary_get_value, (void *)xpc_dictionary_get_value_hook, (void **)&xpc_dictionary_get_value_orig);
     return (status == 0 && xpc_dictionary_get_value_orig != NULL) ? 0 : -1;
 }

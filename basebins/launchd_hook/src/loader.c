@@ -131,10 +131,13 @@ static int spawn_handler(pid_t *pid, const char *path, posix_spawn_file_actions_
     posix_spawnattr_setflags(&target_attr, attr_flags | POSIX_SPAWN_START_SUSPENDED);
 
     process_binary(path);
-    char **target_env = env_copy(env, 3);
+    char **target_env = env_copy(env, 4);
     env_set(target_env, "DYLD_INSERT_LIBRARIES", "/usr/lib/base_hook.dylib", false);
     if (access("/amethyst/.disable_tweaks", F_OK) == 0) env_set(target_env, "DISABLE_TWEAKS", "1", false);
-
+    if (kinfo->version[0] == 12 && kinfo->version[1] < 2) {
+        env_set(target_env, "DYLD_FALLBACK_LIBRARY_PATH", "/usr/lib/libswift/stable", true);
+    }
+ 
     if (target_attr != NULL) {
         ps_attr_t *ps_attr = (ps_attr_t *)target_attr;
         uint32_t multiplier = 2;
@@ -148,7 +151,7 @@ static int spawn_handler(pid_t *pid, const char *path, posix_spawn_file_actions_
             }
             
             if (ps_attr->psa_memlimit_active != -1) {
-                ps_attr->psa_memlimit_active = (ps_attr->psa_memlimit_active * multiplier);
+               ps_attr->psa_memlimit_active = (ps_attr->psa_memlimit_active * multiplier);
             }
 
             if (ps_attr->psa_memlimit_inactive != -1) {

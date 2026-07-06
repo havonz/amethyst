@@ -18,8 +18,13 @@
 
 typedef struct {
     const char *cls;
-    const char *path;
+    const char *value;
 } sandbox_ext_t;
+
+typedef struct {
+    const char *name;
+    uint32_t len;
+} lookup_info_t;
 
 typedef enum {
     JBSERVER_CMD_UNKNOWN = 0,

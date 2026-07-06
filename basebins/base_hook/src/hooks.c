@@ -5,11 +5,33 @@
 #include "basebin_dyld.h"
 #include "hooks.h"
 
+static int (*sandbox_check_by_audit_token_orig)(audit_token_t, const char *, int, ...) = NULL;
 static void *(*dyld2_dlopen_internal)(const char *, int, void *) = NULL;
 static bool (*dyld2_dlopen_preflight_internal)(const char *, void *) = NULL;
 static void *(*dyld3_dlopen_internal)(const char *, int, void *) = NULL;
 static bool (*dyld3_dlopen_preflight_internal)(const char *) = NULL;
 static bool use_dyld3 = false;
+
+static lookup_info_t lookup_allow_list[] = {
+    {"cy:", 3},
+    {"lh:", 3},
+    {"com.ex.substituted", 18},
+    {"com.apple.ReportCrash.SimulateCrash", 35},
+    {NULL, 0}
+};
+
+__attribute__((naked)) static int sys_ptrace(int request, pid_t pid, uint64_t addr, int data) {
+    asm("mov x16, #26");
+    asm("svc #0x80");
+    asm("b.cc 0f");
+    asm("stp x29, x30, [sp, #-0x10]!");
+    asm("mov x29, sp");
+    asm("bl _cerror_nocancel");
+    asm("mov sp, x29");
+    asm("ldp x29, x30, [sp], #0x10");
+    asm("0:");
+    asm("ret");
+}
 
 __attribute__((naked)) static int sys_csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize) {
     asm("mov x16, #169");
@@ -35,6 +57,40 @@ __attribute__((naked)) static int sys_csops_audittoken(pid_t pid, unsigned int o
     asm("ldp x29, x30, [sp], #0x10");
     asm("0:");
     asm("ret");
+}
+
+static int sandbox_check_by_audit_token_hook(audit_token_t at, const char *op, int filter, ...) {
+	va_list va = NULL;
+	va_start(va, filter);
+    void *args[8] = {0};
+
+    for (uint32_t i = 0; i < 8; i++) {
+        args[i] = va_arg(va, void *);
+    }
+	va_end(va);
+
+    if (op != NULL && strcmp(op, "mach-lookup") == 0) {
+        char *service_name = (char *)(args[0]);
+
+        if (service_name != NULL) {
+            for (uint32_t i = 0; lookup_allow_list[i].name != NULL; i++) {
+                if (strncmp(service_name, lookup_allow_list[i].name, lookup_allow_list[i].len) == 0) {
+                    return 0;
+                }
+            }
+        }
+    }
+    return sandbox_check_by_audit_token_orig(at, op, filter, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+}
+
+static int ptrace_hook(int request, pid_t pid, uint64_t addr, int data) {
+    int status = sys_ptrace(request, pid, addr, data);
+    if (status != 0 || pid <= 1 || pid == getpid()) return status;
+
+    if (request == PT_ATTACH || request == PT_ATTACHEXC) {
+        jbserver_init_process(pid, -1, -1, JBSERVER_UNSANDBOX_FULL);
+    }
+    return status;
 }
 
 static void *dlopen_hook(const char *path, int mode) {
@@ -198,6 +254,15 @@ int init_hooks(char *exec_path) {
     hook_function((void *)csops_audittoken, (void *)csops_audittoken_hook, NULL);
     hook_function((void *)dlopen, (void *)dlopen_hook, NULL);
     hook_function((void *)dlopen_preflight, (void *)dlopen_preflight_hook, NULL);
+
+    if (exec_path != NULL && strcmp(exec_path, "/usr/libexec/xpcproxy") == 0) {
+        hook_function(sandbox_check_by_audit_token, (void *)sandbox_check_by_audit_token_hook, (void **)&sandbox_check_by_audit_token_orig);
+    }
+
+    char **exec_name = _NSGetProgname();
+    if (exec_name != NULL && *exec_name != NULL && strcmp(*exec_name, "debugserver") == 0) {
+        hook_function(ptrace, (void *)ptrace_hook, NULL);
+    }
 
     // fix issue where Foundation doesn't initialize correctly in dyld3 mode
     if (use_dyld3) {

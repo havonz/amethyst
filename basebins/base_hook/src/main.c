@@ -95,7 +95,7 @@ __attribute__((constructor)) static void ctor(int argc, char **argv, char **envp
 #ifdef __arm64e__
         if (strcmp(exec_path, "/usr/libexec/xpcproxy") == 0) {
             init_loader();
-            jbserver_init_process(getpid(), target_uid, target_gid, unsandbox_type);
+            jbserver_reinit_process(getpid());
             return;
         }
 #endif

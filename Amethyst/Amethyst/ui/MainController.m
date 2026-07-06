@@ -632,6 +632,15 @@ void ProgressLog(float progress, const char *fmt, ...) {
     [[NSNotificationCenter defaultCenter] postNotificationName:@"status" object:nil userInfo:data];
 }
 
+char *get_app_version(void) {
+    NSString *version = [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"];
+    if (version == NULL) return NULL;
+    
+    const char *version_str = [version UTF8String];
+    if (version_str == NULL) return NULL;
+    return strdup(version_str);
+}
+
 void FadeDisplay(void) {
     [[NSNotificationCenter defaultCenter] postNotificationName:@"fade" object:NULL userInfo:NULL];
 }

@@ -117,6 +117,7 @@ static const char *other_jailbreak_leftovers[] = {
     NULL
 };
 
+char *get_app_version(void);
 int install_deb(char *path);
 int install_tnsv2_support(void);
 int install_bootstrap(void);

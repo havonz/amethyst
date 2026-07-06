@@ -158,9 +158,9 @@ static int spawn_handler(pid_t *pid, const char *path, posix_spawn_file_actions_
         jbserver_process_binary(target_path, &external_libswift);
     }
 
-    if (external_libswift) {
-        jbserver_preload_binary(target_path);
-        env_set(target_env, "DYLD_FALLBACK_LIBRARY_PATH", "/usr/lib:/usr/local/lib:/lib:/Library:/usr/lib/libswift/stable", true);
+    if (!use_stock_libswift()) {
+        if (external_libswift) jbserver_preload_binary(target_path);
+        env_set(target_env, "DYLD_FALLBACK_LIBRARY_PATH", "/usr/lib/libswift/stable", true);
     }
     
     if (target_attr != NULL) {
